@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import calendar
+import inspect
 import re
 import serial
 import sys
@@ -224,7 +225,6 @@ def degToDec(degree, direction):
         tmp_min = (degree - (tmp_deg * 100)) / 60
         decimal = tmp_deg + tmp_min 
     except:
-        print "Degree:", degree
         decimal = 0
     
     if (direction == 'N' or direction == 'E'):
@@ -237,7 +237,10 @@ def printObject(obj):
 
 ### Test Code ###
 if __name__ == "__main__":
-    reader = GPS(1, sys.argv[1])
+    import Adafruit_BBIO.UART as UART    
+    UART.setup("UART1")
+    
+    reader = GPS(1, '/dev/ttyO1')
     reader.start()
     #reader.objects['GPGGA']['handler'] = printObject
     
