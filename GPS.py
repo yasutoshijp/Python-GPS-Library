@@ -7,24 +7,15 @@ import sys
 import threading
 import time
 
-def degToDec(degree, direction):
-    tmp_deg = (int)(degree / 100)
-    tmp_min = (degree - (tmp_deg * 100)) / 60
-    decimal = tmp_deg + tmp_min
-    if (direction == 'N' or direction == 'E'):
-        return decimal
-    else:
-        return -decimal
-
 class GPGGA:
-    def __init__(self, time=0, lat=0, NS=0, lon=0, EW=0, qual=0, numSat=0, HDOP=0, alt=0):
-        self.time = hmsToList(time)
-        self.lat = degToDec(lat, NS)
-        self.lon = degToDec(lon, EW)
-        self.qual = qual
-        self.numSat = numSat
-        self.HDOP = HDOP
-        self.alt = alt
+    def __init__(self, msg_list):
+        self.time = hmsToList(msg_list[0])
+        self.lat = degToDec(msg_list[1], msg_list[2])
+        self.lon = degToDec(msg_list[3], msg_list[4])
+        self.qual = msg_list[5]
+        self.numSat = msg_list[6]
+        self.HDOP = msg_list[7]
+        self.alt = msg_list[8]
     
     def debug(self):
         print "\nGGA:"
@@ -32,11 +23,11 @@ class GPGGA:
             print property + ":", value
 
 class GPGLL:
-    def __init__(self, lat=0, NS='N', lon=0, EW='E', UTC=0, valid='V'):
-        self.lat = degToDec(lat, NS)
-        self.lon = degToDec(lon, EW)
-        self.UTC = hmsToList(UTC)
-        self.valid = valid
+    def __init__(self, msg_list):
+        self.lat = degToDec(msg_list[0], msg_list[1])
+        self.lon = degToDec(msg_list[2], msg_list[3])
+        self.UTC = hmsToList(msg_list[4])
+        self.valid = msg_list[5]
     
     def debug(self):
         print "\nGLL:"
@@ -44,13 +35,13 @@ class GPGLL:
             print property + ":", value
 
 class GPGSA:
-    def __init__(self, list=[]):
-        self.mode1 = list[0]
-        self.mode2 = list[1]
-        self.satellites = filter(None, list[2:14])
-        self.PDOP = list[-3]
-        self.HDOP = list[-2]
-        self.VDOP = list[-1]
+    def __init__(self, msg_list):
+        self.mode1 = msg_list[0]
+        self.mode2 = msg_list[1]
+        self.satellites = filter(None, msg_list[2:14])
+        self.PDOP = msg_list[-3]
+        self.HDOP = msg_list[-2]
+        self.VDOP = msg_list[-1]
     
     def debug(self):
         print "\nGSA:"
@@ -60,33 +51,46 @@ class GPGSA:
 class GPGSV:
     def __init__(self):
         self.tmp_sats = {}
+        self.satellites = {}
     
-    def storeSats(self, messages, msg_num, satsInView, *sats):
+    def storeSats(self, msg_list):
+        messages = msg_list[0]
+        msg_num = msg_list[1]
+        satsInView = msg_list[2]
+        sats = msg_list[3:]
+        
+        # Reset satellites if first message
         if int(msg_num) == 1:
             self.tmp_sats = {}
+        
+        # How many satellites in message
         numSats = 4 if messages != msg_num else (satsInView - ((msg_num-1) * 4))
+        
+        # Set to dictionary
         for i in range(0, (numSats * 4), 4):
             SNR = sats[i+3] if sats[i+3] else None
             elv = sats[i+1] if sats[i+1] else None
             azi = sats[i+2] if sats[i+2] else None
             self.tmp_sats[sats[i]] = {'elevation': elv, 'azimuth': azi, 'SNR': SNR}
+        
+        # If last message save tmp to data
         if messages == msg_num:
             self.satellites = self.tmp_sats
+            self.debug()
     
     def debug(self):
         print "\nGSV:"
-        for property, value in vars(self).iteritems():
-            print property + ":", value
+        print self.satellites
 
 class GPRMC:
-    def __init__(self, UTC=0, valid='V', lat=0, NS=0, lon=0, EW=0, speed=0, course=0, date=0, variation=0, *trash):
-        self.epoch = calendar.timegm(time.strptime(("%d %d" % (UTC, date)), "%H%M%S %d%m%y"))
-        self.valid = True if valid == 'A' else False
-        self.lat = degToDec(lat, NS)
-        self.lon = degToDec(lon, EW)
-        self.speed = speed if speed else None
-        self.course = course if course else None
-        self.variation = variation if variation else None
+    def __init__(self, msg_list):
+        self.epoch = calendar.timegm(time.strptime(("%d %d" % (msg_list[0], msg_list[8])), "%H%M%S %d%m%y"))
+        self.valid = True if msg_list[1] == 'A' else False
+        self.lat = degToDec(msg_list[2], msg_list[3])
+        self.lon = degToDec(msg_list[4], msg_list[5])
+        self.speed = msg_list[6] if msg_list[6] else None
+        self.course = msg_list[7] if msg_list[7] else None
+        self.variation = msg_list[9] if msg_list[9] else None
     
     def debug(self):
         print "\nRMC:"
@@ -94,24 +98,16 @@ class GPRMC:
             print property + ":", value
 
 class GPVTG:
-    def __init__(self, course1=None, reference1='T',
-                       course2=None, reference2=None,
-                       speed1=None, units1=None,
-                       speed2=None, units2=None):
-        self.speed = {units1: speed1 if speed1 else None,
-                      units2: speed2 if speed2 else None}
-        self.course = {reference1: course1 if course1 else None,
-                       reference2: course2 if course2 else None}
+    def __init__(self, msg_list):
+        self.speed = {msg_list[5]: msg_list[4] if msg_list[4] else None,
+                      msg_list[7]: msg_list[6] if msg_list[6] else None}
+        self.course = {msg_list[1]: msg_list[0] if msg_list[0] else None,
+                       msg_list[3]: msg_list[2] if msg_list[2] else None}
     
     def debug(self):
         print "\nVTG:"
         for property, value in vars(self).iteritems():
             print property + ":", value
-
-#def updateSpeed(kmPerHr):
-    # Convert to MPH
-    
-    # Set speed variable
 
 def createCkSum(msg):
     ckSum = 0
@@ -119,7 +115,7 @@ def createCkSum(msg):
         ckSum ^= ord(c)
     return(ckSum)
 
-class myGPS(threading.Thread):
+class GPS(threading.Thread):
     def __init__(self, threadID, device):
         threading.Thread.__init__(self)
         self.threadID = threadID
@@ -128,9 +124,20 @@ class myGPS(threading.Thread):
         self.port.close()
         self.port.open()
         self.running = False
+        self.msgCodes = {
+            'GPGGA': 0, 'GPGLL': 1, 'GPGSA': 2, 'GPGSV': 3, 'GPRMC': 4, 'GPVTG': 5
+        }
         self.getMsg = None
         self.getCmd = None
-        self.GSV = GPGSV()
+        self.objects = {
+            'GPGGA': {'data': None, 'handler': None, 'factory': GPGGA},
+            'GPGLL': {'data': None, 'handler': None, 'factory': GPGLL},
+            'GPGSA': {'data': None, 'handler': None, 'factory': GPGSA},
+            'GPGSV': {'data': GPGSV(), 'handler': None, 'factory': None},
+            'GPRMC': {'data': None, 'handler': None, 'factory': GPRMC},
+            'GPVTG': {'data': None, 'handler': None, 'factory': GPVTG}
+        }
+        self.objects['GPGSV']['factory'] = self.objects['GPGSV']['data'].storeSats
     
     def run(self):
         self.running = True
@@ -146,68 +153,48 @@ class myGPS(threading.Thread):
                 if self.isGood:
                     a = self.msg.rsplit(',')
                     listToTypes(a)
-                    if a[0] == 'GPGGA':
-                        self.GGA = GPGGA(*a[1:10])
-                        if self.getCmd == 'GGA':
-                            self.getMsg = self.GGA
-                            self.getCmd = None
-                    elif a[0] == 'GPGSA':
-                        self.GSA = GPGSA(a[1:])
-                        if self.getCmd == 'GSA':
-                            self.getMsg = self.GSA
-                            self.getCmd = None
-                    elif a[0] == 'GPGSV':
-                        self.GSV.storeSats(*a[1:])
-                        if self.getCmd == 'GSV':
-                            self.getMsg = self.GSV
-                            self.getCmd = None
-                    elif a[0] == 'GPRMC':
-                        self.RMC = GPRMC(*a[1:])
-                        if self.getCmd == 'RMC':
-                            self.getMsg = self.RMC
-                            self.getCmd = None
-                    elif a[0] == 'GPGLL':
-                        self.GLL = GPGLL(*a[1:7])
-                        if self.getCmd == 'GLL':
-                            self.getMsg = self.GLL
-                            self.getCmd = None
-                    elif a[0] == 'GPVTG':
-                        self.VTG = GPVTG(*a[1:9])
-                        if self.getCmd == 'VTG':
-                            self.getMsg = self.VTG
-                            self.getCmd = None
-                    else:
-                        print "Unknown message type"
+                    
+                    # Store data
+                    if a[0] != 'GPGSV':
+                        self.objects[a[0]]['data'] = self.objects[a[0]]['factory'](a[1:])
+                    
+                    # Pass to any handler
+                    if self.objects[a[0]]['handler']:
+                        self.objects[a[0]]['handler'](self.objects[a[0]]['data'])
+                    
+                    # Place data for getting report
+                    if self.getCmd == a[0]:
+                        if a[0] == 'GPGSV' and a[1] != a[2]:
+                            continue
+                        self.getMsg = self.objects[a[0]]['data']
+                        self.getCmd = None
                 else:
                     print 'Bad check-sum'
             else:
                 print 'Incomplete message'
+                self.port.flushInput()
         print "Exiting " + self.name
     
     def stop(self):
         self.running = False
     
     def setRate(self, msg, rate):
-        msgCode = {
-            'GGA': 0, 'GLL': 1,
-            'GSA': 2, 'GSV': 3,
-            'RMC': 4, 'VTG': 5
-            }
-        self.__send_output('PSRF103,%02d,%02d,%02d,%02d' % (msgCode.get(msg, ''), 0, rate, 1))
+        self.__send_output('PSRF103,%02d,%02d,%02d,%02d' % (self.msgCodes.get(msg, ''), 0, rate, 1))
     
     def getReport(self, msg):
-        msgCode = {
-            'GGA': 0, 'GLL': 1,
-            'GSA': 2, 'GSV': 3,
-            'RMC': 4, 'VTG': 5
-            }
-        timeout = 0
-        maxTime = 3
+        # Form message
         self.getCmd = msg
-        self.__send_output('PSRF103,%02d,%02d,%02d,%02d' % (msgCode.get(msg, ''), 1, 0, 1))
+        print 'Message requested'
+        self.__send_output('PSRF103,%02d,%02d,%02d,%02d' % (self.msgCodes.get(msg, 99), 1, 0, 1))
+        
+        # Wait for message
+        timeout = 0
+        maxTime = 1
         while timeout < maxTime and self.getMsg == None:
-            time.sleep(0.05)
-            timeout + 0.05
+            time.sleep(0.1)
+            timeout += 0.1
+        
+        # Save message, reset, and return
         newMsg = self.getMsg
         self.getMsg = None
         return newMsg
@@ -231,13 +218,45 @@ def hmsToList(hms):
     seconds = remainder % 100
     return(hour, minutes, seconds)
 
+def degToDec(degree, direction):
+    try:
+        tmp_deg = (int)(degree / 100)
+        tmp_min = (degree - (tmp_deg * 100)) / 60
+        decimal = tmp_deg + tmp_min 
+    except:
+        print "Degree:", degree
+        decimal = 0
+    
+    if (direction == 'N' or direction == 'E'):
+        return decimal
+    else:
+        return -decimal
+
+def printObject(obj):
+    obj.debug()
+
 ### Test Code ###
 if __name__ == "__main__":
-    reader = myGPS(1, sys.argv[1])
+    reader = GPS(1, sys.argv[1])
     reader.start()
+    #reader.objects['GPGGA']['handler'] = printObject
     
-    for i in range(1, 10):
-        reader.getReport('VTG').debug()
+    str = None
+    while str != "quit" and reader.isAlive():
+        str = raw_input(" $ ")
+        match = re.match("^(GET|RATE) (.*)", str.upper())
+        if match:
+            if match.group(1) == 'GET':
+                msg = reader.getReport(match.group(2))
+                if msg:
+                    msg.debug()
+            elif match.group(1) == 'RATE':
+                print match.group(2)
+                reader.setRate(match.group(2).rsplit(' '))
+        elif reader.objects.get(str, None):
+            print(reader.objects[str]['data'].debug())
+        elif str != '' and str != 'quit':
+            print "Object has no "+str
     
     reader.running = 0
     print "Exiting main"
